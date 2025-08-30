@@ -2,7 +2,7 @@
 
 # Environment variables
 # This is the most important rule! Never commit your secrets.
-.env
+# .env
 
 # Dependencies
 # These folders can be huge and should always be re-installed, not stored in git.
