@@ -1,6 +1,4 @@
-# docker-compose.yml (Complete and Corrected)
-
-# The 'version' tag is no longer needed in modern Docker Compose, so we can remove it.
+# docker-compose.yml (Final Version with Corrected Kafka Dependency)
 
 services:
   zookeeper:
@@ -15,14 +13,17 @@ services:
       - "9092:9092"
     depends_on:
       - zookeeper
-    # --- Find this section for the 'kafka' service ---
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
-      # This is the corrected line that fixes the problem
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_GROUP_ID: booking-group
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   postgres:
     image: postgres:14.1
@@ -62,27 +63,23 @@ services:
       retries: 5
       start_period: 5s
 
-  # <--- THIS ENTIRE SECTION WAS LIKELY MISSING OR INCORRECT --->
   # --- OUR APPLICATION MICROSERVICES ---
   write-api:
     build: ./write-api
+    ports: # Added ports back for direct testing if needed
+      - "3000:3000"
     environment:
       PORT: 3000
       KAFKA_BROKER: kafka:9092
       KAFKA_CLIENT_ID: write-api
       KAFKA_TOPIC_BOOKING: booking-requests
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-      POSTGRES_DATABASE: ticketing
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
     depends_on:
       kafka:
-        condition: service_started
+        condition: service_healthy # <--- THIS IS THE FIX
       postgres:
         condition: service_healthy
 
-  worker: # Added the worker service definition
+  worker:
     build: ./worker
     environment:
       KAFKA_BROKER: kafka:9092
@@ -98,17 +95,19 @@ services:
       LOCK_TTL_SECONDS: 30
     depends_on:
       kafka:
-        condition: service_started
+        condition: service_healthy # <--- THIS IS THE FIX
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started # Redis starts fast, no complex healthcheck needed
+        condition: service_started
 
   read-api:
     build: ./read-api
+    ports: # Added ports back for direct testing if needed
+      - "3001:3001"
     environment:
       PORT: 3001
-      MONGO_URI: mongodb://user:password@mongo:27017/ticketing?authSource=admin
+      MONGO_URI: mongodb://user:password@mongo:27017/ticketingReadDB?authSource=admin
     depends_on:
       mongo:
         condition: service_healthy
@@ -121,14 +120,13 @@ services:
       POSTGRES_DATABASE: ticketing
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      MONGO_URI: mongodb://user:password@mongo:27017/ticketing?authSource=admin
+      MONGO_URI: mongodb://user:password@mongo:27017/ticketingReadDB?authSource=admin
       SYNC_INTERVAL_MS: 5000
     depends_on:
       mongo:
         condition: service_healthy
       postgres:
         condition: service_healthy
-  # <--- END OF APPLICATION SERVICES SECTION --->
 
   # --- API GATEWAY SERVICE ---
   nginx:

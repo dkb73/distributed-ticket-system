@@ -22,54 +22,54 @@ const STATE_COLLECTION_NAME = 'sync_state';
 const STATE_DOCUMENT_ID = 'ticket_sync_state';
 
 // --- DATABASE INITIALIZATION ---
+// In data-sync-service/index.js
+
 async function initializeDatabases(pgPool, db) {
+  console.log('[INIT] Checking database schemas...');
+  const pgClient = await pgPool.connect();
   try {
-    // Check if tickets table exists in PostgreSQL
-    const tableCheck = await pgPool.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_schema = 'public' 
-        AND table_name = 'tickets'
-      );
-    `);
-    
-    if (!tableCheck.rows[0].exists) {
-      console.log('Creating tickets table...');
-      await pgPool.query(`
-        CREATE TABLE IF NOT EXISTS tickets (
+    const tableCheck = await pgClient.query("SELECT to_regclass('public.tickets')");
+
+    if (tableCheck.rows[0].to_regclass === null) {
+      console.log('[INIT] Tickets table not found. Creating table and index...');
+      // Create table
+      await pgClient.query(`
+        CREATE TABLE tickets (
           id SERIAL PRIMARY KEY,
-          event_id INTEGER NOT NULL,
-          seat_id VARCHAR(50) NOT NULL,
-          status VARCHAR(20) DEFAULT 'available',
-          user_id INTEGER,
-          created_at TIMESTAMP DEFAULT NOW(),
-          updated_at TIMESTAMP DEFAULT NOW(),
-          UNIQUE(event_id, seat_id)
+          event_id VARCHAR(255) NOT NULL,
+          seat_id VARCHAR(255) NOT NULL,
+          status VARCHAR(50) NOT NULL DEFAULT 'available',
+          user_id VARCHAR(255),
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
       `);
-      console.log('Tickets table created successfully.');
-    } else {
-      console.log('Tickets table already exists.');
-    }
+      // CRITICAL: Also create the unique index
+      await pgClient.query(`
+        CREATE UNIQUE INDEX unique_seat_for_event ON tickets (event_id, seat_id);
+      `);
+      console.log('[INIT] Tickets table and index created successfully.');
 
-    // Check if events collection exists in MongoDB
-    const collections = await db.listCollections().toArray();
-    const eventsCollectionExists = collections.some(col => col.name === 'events');
-    
-    if (!eventsCollectionExists) {
-      console.log('Creating events collection...');
-      await db.createCollection('events');
-      console.log('Events collection created successfully.');
+      // Table is new, so it must be empty. Let's seed it.
+      console.log('[INIT] Seeding database with initial ticket data...');
+      await pgClient.query(`
+        INSERT INTO tickets (event_id, seat_id, status) VALUES
+        ('concert123', 'A1', 'available'),
+        ('concert123', 'A2', 'available'),
+        ('concert123', 'A3', 'available'),
+        ('sports_event456', 'R10_S5', 'available'),
+        ('sports_event456', 'R10_S6', 'available');
+      `);
+      console.log('[INIT] Seed data inserted successfully.');
     } else {
-      console.log('Events collection already exists.');
+      console.log('[INIT] Tickets table already exists. No action needed.');
     }
-
   } catch (error) {
-    console.error('Error initializing databases:', error);
+    console.error('[INIT] Error during database initialization:', error);
     throw error;
+  } finally {
+    pgClient.release();
   }
 }
-
 // --- STATE MANAGEMENT FUNCTIONS ---
 /**
  * Fetches the last successfully saved sync timestamp from a dedicated collection in MongoDB.

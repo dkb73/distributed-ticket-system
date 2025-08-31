@@ -1,15 +1,9 @@
-const { redisClient } = require('../services/redis');
-const { pgPool } = require('../services/postgres');
+// worker/src/handlers/bookingHandler.js (Updated)
+
 const config = require('../config');
 
-const processBooking = async ({ message }) => {
-
-// firstly extract info out of message bcz it's in string 
-// check if combination/ redis hash key : (eventId-seatNo)   is already locked or not.
-// if it doesn't exist, then try to make updates in database(making status:Available and userId=curuser )
-// if updates occurs (res will have one row) => return success 
-// else return failure
-
+// The handler now accepts the message payload AND a 'clients' object containing the connections.
+const processBooking = async ({ message }, { pgPool, redisClient }) => {
   const bookingRequest = JSON.parse(message.value.toString());
   const { userId, eventId, seatId } = bookingRequest;
 
@@ -24,10 +18,11 @@ const processBooking = async ({ message }) => {
 
   if (!lockAcquired) {
     console.log(`[FAILED] Could not acquire lock for ${lockKey}. Another process is handling it.`);
-    return; // Exit early if lock is not acquired
+    return;
   }
 
   console.log(`[SUCCESS] Lock acquired for ${lockKey}`);
+  // Get a client from the single, shared pool passed into this function
   const client = await pgPool.connect();
 
   try {
