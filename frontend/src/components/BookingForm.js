@@ -23,7 +23,7 @@ function BookingForm({ event, onBookingComplete }) {
     try {
       const booking = {
         userId: parseInt(formData.userId),
-        eventId: parseInt(event.event_id.replace(/\D/g, '')), // Extract numbers from event_id
+        eventId: event.event_id, // Keep event_id as is
         seatId: formData.seatId,
       };
 
