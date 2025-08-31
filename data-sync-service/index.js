@@ -217,7 +217,7 @@ async function main() {
     const pgPool = new Pool(pgConfig);
     const mongoClient = new MongoClient(mongoUri);
     await mongoClient.connect();
-    const db = mongoClient.db();
+    const db = mongoClient.db('ticketing');
     
     // Initialize databases (create tables/collections if they don't exist)
     await initializeDatabases(pgPool, db);
