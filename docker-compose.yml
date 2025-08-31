@@ -66,8 +66,6 @@ services:
   # --- OUR APPLICATION MICROSERVICES ---
   write-api:
     build: ./write-api
-    ports:
-      - "3000:3000"
     environment:
       PORT: 3000
       KAFKA_BROKER: kafka:9092
@@ -108,8 +106,6 @@ services:
 
   read-api:
     build: ./read-api
-    ports:
-      - "3001:3001"
     environment:
       PORT: 3001
       MONGO_URI: mongodb://user:password@mongo:27017/ticketing?authSource=admin
