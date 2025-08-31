@@ -1,5 +1,8 @@
 const dotenv = require('dotenv');
-dotenv.config();
+// Only load dotenv if not already loaded
+if (!process.env.MONGO_URI) {
+  dotenv.config();
+}
 
 module.exports = {
   port: process.env.PORT,
