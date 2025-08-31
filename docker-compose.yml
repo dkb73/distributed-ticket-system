@@ -5,14 +5,12 @@
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.0.1
-    container_name: zookeeper
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
 
   kafka:
     image: confluentinc/cp-kafka:7.0.1
-    container_name: kafka
     ports:
       - "9092:9092"
     depends_on:
@@ -28,13 +26,13 @@ services:
 
   postgres:
     image: postgres:14.1
-    container_name: postgres
     ports:
       - "5432:5432"
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
       POSTGRES_DB: ticketing
+    command: postgres -c max_connections=1000
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -45,13 +43,11 @@ services:
 
   redis:
     image: redis:6.2-alpine
-    container_name: redis
     ports:
       - "6379:6379"
 
   mongo:
     image: mongo:5.0
-    container_name: mongo
     ports:
       - "27017:27017"
     volumes:
@@ -72,6 +68,16 @@ services:
     build: ./write-api
     ports:
       - "3000:3000"
+    environment:
+      PORT: 3000
+      KAFKA_BROKER: kafka:9092
+      KAFKA_CLIENT_ID: write-api
+      KAFKA_TOPIC_BOOKING: booking-requests
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DATABASE: ticketing
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
     depends_on:
       kafka:
         condition: service_started
@@ -80,6 +86,18 @@ services:
 
   worker: # Added the worker service definition
     build: ./worker
+    environment:
+      KAFKA_BROKER: kafka:9092
+      KAFKA_CLIENT_ID: worker
+      KAFKA_GROUP_ID: booking-group
+      KAFKA_TOPIC_BOOKING: booking-requests
+      REDIS_URL: redis://redis:6379
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DATABASE: ticketing
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      LOCK_TTL_SECONDS: 30
     depends_on:
       kafka:
         condition: service_started
@@ -92,12 +110,23 @@ services:
     build: ./read-api
     ports:
       - "3001:3001"
+    environment:
+      PORT: 3001
+      MONGO_URI: mongodb://user:password@mongo:27017/ticketing?authSource=admin
     depends_on:
       mongo:
         condition: service_healthy
 
   data-sync-service:
     build: ./data-sync-service
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DATABASE: ticketing
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      MONGO_URI: mongodb://user:password@mongo:27017/ticketing?authSource=admin
+      SYNC_INTERVAL_MS: 5000
     depends_on:
       mongo:
         condition: service_healthy
@@ -108,7 +137,6 @@ services:
   # --- API GATEWAY SERVICE ---
   nginx:
     image: nginx:1.21-alpine
-    container_name: nginx-gateway
     ports:
       - "8080:80"
     volumes:
