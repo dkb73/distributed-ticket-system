@@ -1,25 +1,59 @@
-# Distributed Ticket Booking System
 
-A microservices-based distributed ticket booking system built with Node.js, Docker, and various databases.
+# Distributed Event Booking System
 
-## 🏗️ Architecture
+<details>
+<summary>Click to see a diagram of the architecture</summary>
 
-This system consists of the following microservices:
+```mermaid
+graph TD
+    subgraph User Interaction
+        A[User's Browser]
+    end
 
-- **Write-API**: Handles ticket booking requests (PostgreSQL + Kafka)
-- **Read-API**: Serves event data (MongoDB)
-- **Worker**: Processes booking requests asynchronously (Redis + PostgreSQL)
-- **Data-Sync-Service**: Synchronizes data between PostgreSQL and MongoDB
-- **Nginx**: API Gateway for routing requests
+    subgraph System Gateway
+        B(NGINX API Gateway)
+    end
+
+    subgraph Write Path [Write Path - Fast & Resilient]
+        C(Write API - Node.js)
+        D(Apache Kafka - booking_requests)
+        E(Worker - Node.js)
+        F(Redis - Distributed Lock)
+        G(PostgreSQL - Write DB)
+    end
+
+    subgraph Read Path [Read Path - Fast & Scalable]
+        H(Read API - Node.js)
+        I(MongoDB - Read DB)
+    end
+
+    subgraph Data Synchronization
+        J(Data Sync Service)
+    end
+
+    A --> B
+    B -- POST /api/book --> C
+    C -- Publishes Request --> D
+    D --> E
+    E -- Acquires Lock --> F
+    E -- Updates Ticket --> G
+    
+    B -- GET /api/events --> H
+    H -- Queries Events --> I
+    
+    G -- Periodically Polled --> J
+    J -- Updates Denormalized View --> I
+```
+</details>
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
-- Docker Desktop installed and running
-- Git
+- Docker Desktop installed and running.
+- Git installed.
 
-### 1. Clone the Repository
+### 1. Clone & Navigate
 
 ```bash
 git clone <your-repo-url>
@@ -28,191 +62,166 @@ cd distributed-ticket-system
 
 ### 2. Start the System
 
-#### Option A: Use the Startup Script (Recommended)
+The startup script handles database initialization and starts all services in the correct order.
 
-**Windows:**
+On Windows (PowerShell):
+
 ```bash
 .\start-services.bat
 ```
 
-**Linux/Mac:**
+On Linux/macOS:
+
 ```bash
 chmod +x start-services.sh
 ./start-services.sh
 ```
 
-#### Option B: Manual Startup
+This process will take a few minutes on the first run as it downloads and builds all the necessary container images.
 
-```bash
-# Start infrastructure services first
-docker-compose up -d postgres redis mongo zookeeper kafka
+### 3. Verify
 
-# Wait for them to be ready (about 30 seconds), then start application services
-docker-compose up -d worker data-sync-service write-api read-api nginx
-```
-
-### 3. Verify the System is Running
+After the script completes, check that all services are healthy:
 
 ```bash
 docker-compose ps
 ```
 
-All services should show as "Up" or "Healthy".
+All services should have a STATUS of `Up` or `running (healthy)`.
 
-## 📡 API Endpoints
+## 📡 API Usage (via Gateway)
 
-### Write API (Booking)
-- **URL**: `http://localhost:3000/api/book`
-- **Method**: POST
-- **Body**:
+All requests should be made to the NGINX Gateway at **http://localhost:8080**.
+
+<br/>
+
+<details>
+<summary><strong>GET /api/events</strong> — List all available events</summary>
+
+**Description:** Retrieves a summary of all events in the system. To keep the payload small and fast, this endpoint intentionally excludes the detailed seat map.
+
+**Method:** GET
+
+**URL:** `http://localhost:8080/api/events`
+
+**Success Response (200 OK):**
+```json
+[
+  {
+    "_id": "68b485fddd8d6e30ae07e94b",
+    "event_id": "concert123",
+    "date": "2025-09-01T11:58:36.000Z",
+    "name": "Event concert123"
+  },
+  {
+    "_id": "68b485fddd8d6e30ae07e952",
+    "event_id": "sports_event456",
+    "date": "2025-09-01T11:58:36.000Z",
+    "name": "Event sports_event456"
+  }
+]
+```
+</details>
+
+<details>
+<summary><strong>GET /api/events/:id</strong> — Get details and seat map for a single event</summary>
+
+**Description:** Retrieves the full details for a specific event, including the real-time status of every seat.
+
+**Method:** GET
+
+**URL:** `http://localhost:8080/api/events/concert123`
+
+**Success Response (200 OK):**
 ```json
 {
-  "userId": 123,
-  "eventId": 1,
-  "seatId": "A1"
+  "_id": "68b485fddd8d6e30ae07e94b",
+  "event_id": "concert123",
+  "date": "2025-09-01T11:58:36.000Z",
+  "name": "Event concert123",
+  "seats": [
+    { "seat_id": "A1", "status": "available", "user_id": null },
+    { "seat_id": "A2", "status": "available", "user_id": null },
+    { "seat_id": "A3", "status": "available", "user_id": null }
+  ]
+}
+```
+</details>
+
+<details>
+<summary><strong>POST /api/book</strong> — Request to book a ticket</summary>
+
+**Description:** Submits an asynchronous request to book a specific seat. The system responds immediately and processes the booking in the background.
+
+**Method:** POST
+
+**URL:** `http://localhost:8080/api/book`
+
+**Body:**
+```json
+{
+  "userId": "user-123",
+  "eventId": "concert123",
+  "seatId": "A2"
 }
 ```
 
-### Read API (Events)
-- **URL**: `http://localhost:3001/api/events`
-- **Method**: GET
-
-### Nginx Gateway
-- **URL**: `http://localhost:8080`
-- **Routes**:
-  - `POST /api/book` → Write API
-  - `GET /api/events` → Read API
-
-## 🧪 Testing the System
-
-### 1. Test Write API
-```bash
-curl -X POST http://localhost:3000/api/book \
-  -H "Content-Type: application/json" \
-  -d '{"userId": 123, "eventId": 1, "seatId": "A1"}'
+**Success Response (202 Accepted):**
+```json
+{
+  "message": "Booking request received and is being processed."
+}
 ```
+</details>
 
-### 2. Test Read API
-```bash
-curl http://localhost:3001/api/events
-```
-
-### 3. Check Logs
-```bash
-# View all logs
-docker-compose logs -f
-
-# View specific service logs
-docker-compose logs -f write-api
-docker-compose logs -f worker
-docker-compose logs -f data-sync-service
-```
+<br/>
 
 ## 🔧 Troubleshooting
 
-### Common Issues
+If you encounter issues where services are not starting correctly or the Docker environment seems stuck, you can perform a full reset.
 
-1. **Port Conflicts**
-   - Make sure ports 3000, 3001, 8080, 5432, 6379, 27017, 9092 are available
-   - Stop any existing services using these ports
+<details>
+<summary><strong>🚨 Emergency Reset: Force-Clean Docker Environment</strong></summary>
 
-2. **Container Name Conflicts**
-   - Run `docker-compose down` to stop all containers
-   - Then restart with `.\start-services.bat`
-
-3. **Database Connection Issues**
-   - Wait for infrastructure services to be fully ready (check with `docker-compose ps`)
-   - Look for "Healthy" status for PostgreSQL and MongoDB
-
-4. **Infinite Logs**
-   - This usually means a service is crashing and restarting
-   - Check individual service logs: `docker-compose logs <service-name>`
-
-### Reset Everything
-
-If you need to start fresh:
+**Warning:** These commands are destructive and will remove all containers, volumes (deleting your database data), and unused images on your system.
 
 ```bash
-# Stop and remove everything
-docker-compose down -v
+# Step 1: 
+docker-compose down
 
-# Remove all images (optional)
-docker system prune -a
+# Step 2: flush db data
+docker volume rm distributed-ticket-system_postgres_data
+>> docker volume rm distributed-ticket-system_mongo_data
 
-# Start again
-.\start-services.bat
+# Step 3: Forcefully stop all running containers
+# This is useful if 'docker-compose down' hangs.
+docker stop $(docker ps -aq)
+
+# Step 4: Forcefully remove all containers (running or stopped)
+docker rm $(docker ps -aq)
+
+# Step 5: Prune the entire Docker system
+# This removes all stopped containers, all networks, all volumes,
+# all unused images, and all build cache.
+docker system prune -a --volumes
+
+# When prompted, type 'y' and press Enter
+
+# Then re-run .\start-services.bat
 ```
 
-## 📊 System Status
+After running these commands, your Docker environment will be completely clean, and you can run the startup script again.
 
-| Service | Status | Port | Purpose |
-|---------|--------|------|---------|
-| PostgreSQL | ✅ Working | 5432 | Primary database (bookings) |
-| MongoDB | ✅ Working | 27017 | Read database (events) |
-| Redis | ✅ Working | 6379 | Caching & locks |
-| Kafka | ✅ Working | 9092 | Message queue |
-| Zookeeper | ✅ Working | 2181 | Kafka coordination |
-| Write-API | ✅ Working | 3000 | Booking endpoint |
-| Read-API | ✅ Working | 3001 | Events endpoint |
-| Worker | ✅ Working | - | Async processing |
-| Data-Sync | ⚠️ Partially Working | - | PostgreSQL → MongoDB sync |
-| Nginx | ✅ Working | 8080 | API Gateway |
+</details>
 
-## 🐛 Known Issues
+## 🛠️ Technology Stack
 
-1. **Data-Sync Service**: The data synchronization between PostgreSQL and MongoDB has timing issues and may not sync all updates immediately. This doesn't affect the core booking functionality.
+| Category        | Technology                | Purpose                                                                 |
+|-----------------|---------------------------|-------------------------------------------------------------------------|
+| Backend         | Node.js, Express.js       | Core application logic and API development.                             |
+| Databases       | PostgreSQL, MongoDB       | Polyglot Persistence: Postgres for transactional integrity (Write), MongoDB for fast, scalable reads (Read). |
+| Caching/Locking | Redis                     | High-performance distributed locking to prevent race conditions.        |
+| Messaging       | Apache Kafka              | Asynchronous message queue for decoupling services and ensuring fault tolerance. |
+| Orchestration   | Docker, Docker Compose    | Containerizing all services for consistent, portable, one-command deployment. |
+| API Gateway     | NGINX                     | Single entry point for all incoming requests, routing to the appropriate microservice. |
 
-2. **Initial Data**: The system starts with sample tickets for events 1 and 2. You can create new bookings using the Write API.
-
-## 🔍 Monitoring
-
-### Check Service Health
-```bash
-docker-compose ps
-```
-
-### View Real-time Logs
-```bash
-docker-compose logs -f
-```
-
-### Check Database Content
-```bash
-# PostgreSQL
-docker exec -it distributed-ticket-system-postgres-1 psql -U user -d ticketing -c "SELECT * FROM tickets;"
-
-# MongoDB
-docker exec -it distributed-ticket-system-mongo-1 mongosh -u user -p password --authenticationDatabase admin ticketing --eval "db.events.find().pretty()"
-```
-
-## 📝 Development
-
-### Project Structure
-```
-distributed-ticket-system/
-├── write-api/          # Booking API (PostgreSQL + Kafka)
-├── read-api/           # Events API (MongoDB)
-├── worker/             # Async booking processor
-├── data-sync-service/  # PostgreSQL → MongoDB sync
-├── nginx/              # API Gateway
-├── docker-compose.yml  # Service orchestration
-└── start-services.bat  # Startup script
-```
-
-### Adding New Features
-
-1. **New API Endpoint**: Add to the appropriate service (write-api or read-api)
-2. **Database Changes**: Update the database initialization in worker/src/services/postgres.js
-3. **New Service**: Add to docker-compose.yml and create startup script entry
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## 📄 License
-
-This project is for educational purposes.
